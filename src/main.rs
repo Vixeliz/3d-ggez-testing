@@ -109,6 +109,40 @@ impl Vertex {
     }
 }
 
+struct Mesh {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    vert_buffer: Option<wgpu::Buffer>,
+    ind_buffer: Option<wgpu::Buffer>,
+    // pub texture: Option<Texture2D>,
+}
+
+impl Mesh {
+    fn gen_wgpu_buffer(&mut self, ctx: &mut Context) {
+        let verts = ctx
+            .gfx
+            .wgpu()
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(self.vertices.as_slice()),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let inds = ctx
+            .gfx
+            .wgpu()
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(self.indices.as_slice()),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        self.vert_buffer = Some(verts);
+        self.ind_buffer = Some(inds);
+    }
+}
+
 fn default_view() -> Isometry3 {
     // Eye location, target location, up-vector
     Mat4::look_at_rh(
@@ -123,8 +157,7 @@ struct MainState {
     camera: Camera,
     screen_coords: Rect,
 
-    verts: wgpu::Buffer,
-    inds: wgpu::Buffer,
+    meshes: Vec<Mesh>,
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     depth: graphics::ScreenImage,
@@ -143,7 +176,7 @@ impl MainState {
             .create_shader_module(wgpu::include_wgsl!("../resources/cube.wgsl"));
 
         // Cube geometry
-        let vertex_data = [
+        let vertex_data = vec![
             // top (0, 0, 1)
             Vertex::new([-1, -1, 1], [0, 0]),
             Vertex::new([1, -1, 1], [1, 0]),
@@ -175,9 +208,41 @@ impl MainState {
             Vertex::new([-1, -1, -1], [1, 1]),
             Vertex::new([1, -1, -1], [0, 1]),
         ];
+        let vertex_data_two = vec![
+            // top (0, 0, 1)
+            Vertex::new([2, 2, 2], [0, 0]),
+            Vertex::new([4, 2, 2], [1, 0]),
+            Vertex::new([4, 4, 2], [1, 1]),
+            Vertex::new([2, 4, 2], [0, 1]),
+            // bottom (0, 0, -1)
+            Vertex::new([2, 4, -1], [1, 0]),
+            Vertex::new([4, 4, -1], [0, 0]),
+            Vertex::new([4, 2, -1], [0, 1]),
+            Vertex::new([2, 2, -1], [1, 1]),
+            // right (1, 0, 0)
+            Vertex::new([4, 2, -1], [0, 0]),
+            Vertex::new([4, 4, -1], [1, 0]),
+            Vertex::new([4, 4, 2], [1, 1]),
+            Vertex::new([4, 2, 2], [0, 1]),
+            // left (-1, 0, 0)
+            Vertex::new([2, 2, 2], [1, 0]),
+            Vertex::new([2, 4, 2], [0, 0]),
+            Vertex::new([2, 4, -1], [0, 1]),
+            Vertex::new([2, 2, -1], [1, 1]),
+            // front (0, 1, 0)
+            Vertex::new([4, 4, -1], [1, 0]),
+            Vertex::new([2, 4, -1], [0, 0]),
+            Vertex::new([2, 4, 2], [0, 1]),
+            Vertex::new([4, 4, 2], [1, 1]),
+            // back (0, -1, 0)
+            Vertex::new([4, 2, 2], [0, 0]),
+            Vertex::new([2, 2, 2], [1, 0]),
+            Vertex::new([2, 2, -1], [1, 1]),
+            Vertex::new([4, 2, -1], [0, 1]),
+        ];
 
         #[rustfmt::skip]
-        let index_data: &[u32] = &[
+        let index_data: Vec<u32> = vec![
              0,  1,  2,  2,  3,  0, // top
              4,  5,  6,  6,  7,  4, // bottom
              8,  9, 10, 10, 11,  8, // right
@@ -185,26 +250,6 @@ impl MainState {
             16, 17, 18, 18, 19, 16, // front
             20, 21, 22, 22, 23, 20, // back
         ];
-
-        // Create vertex and index buffers.
-        let verts = ctx
-            .gfx
-            .wgpu()
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(vertex_data.as_slice()),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let inds = ctx
-            .gfx
-            .wgpu()
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(index_data),
-                usage: wgpu::BufferUsages::INDEX,
-            });
 
         let mut camera = Camera::default();
         camera.aspect = ctx.gfx.size().0 / ctx.gfx.size().1;
@@ -381,12 +426,27 @@ impl MainState {
         // FOV, spect ratio, znear, zfar
         // let proj = Mat4::perspective_rh(f32::consts::PI / 4.0, 4.0 / 3.0, 1.0, 10.0);
         // let transform = proj * default_view();
+        let mut mesh = Mesh {
+            vertices: vertex_data,
+            indices: index_data.clone(),
+            vert_buffer: None,
+            ind_buffer: None,
+        };
+
+        mesh.gen_wgpu_buffer(ctx);
+
+        let mut mesh_two = Mesh {
+            vertices: vertex_data_two,
+            indices: index_data,
+            vert_buffer: None,
+            ind_buffer: None,
+        };
+
+        mesh_two.gen_wgpu_buffer(ctx);
 
         Ok(MainState {
             frames: 0,
             camera: Camera::default(),
-            verts,
-            inds,
             pipeline,
             bind_group,
             depth,
@@ -399,6 +459,7 @@ impl MainState {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            meshes: vec![mesh, mesh_two],
         })
     }
 }
@@ -453,15 +514,21 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }),
             });
 
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            // NEW!
-            pass.set_bind_group(1, &self.camera_bind_group, &[]);
             // pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            pass.set_vertex_buffer(0, self.verts.slice(..));
-            pass.set_index_buffer(self.inds.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..36, 0, 0..1);
+            for mesh in self.meshes.iter() {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                // NEW!()
+                pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                // let (vert_buffer, ind_buffer) = mesh.wgpu_buffer(ctx);
+                pass.set_vertex_buffer(0, mesh.vert_buffer.as_ref().unwrap().slice(..));
+                pass.set_index_buffer(
+                    mesh.ind_buffer.as_ref().unwrap().slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                pass.draw_indexed(0..36, 0, 0..1);
+            }
         }
 
         let mut canvas = graphics::Canvas::from_frame(ctx, None);
