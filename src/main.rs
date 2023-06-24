@@ -53,7 +53,7 @@ impl Camera {
         // 1.
         let view = default_view();
         // 2.
-        let proj = Mat4::perspective_rh(f32::consts::PI / 4.0, 4.0 / 3.0, 1.0, 10.0);
+        let proj = Mat4::perspective_rh(self.fovy.to_radians(), self.aspect, self.znear, self.zfar);
 
         // 3.
         return proj * view;
@@ -206,7 +206,8 @@ impl MainState {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-        let camera = Camera::default();
+        let mut camera = Camera::default();
+        camera.aspect = ctx.gfx.size().0 / ctx.gfx.size().1;
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
 
@@ -400,20 +401,18 @@ impl MainState {
             camera_bind_group,
         })
     }
-
-    // pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-    //     if new_size.width > 0 && new_size.height > 0 {
-    //         self.size = new_size;
-    //         self.config.width = new_size.width;
-    //         self.config.height = new_size.height;
-    //         self.surface.configure(&self.device, &self.config);
-    //     }
-    // }
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
-    fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) -> GameResult {
+    fn resize_event(&mut self, ctx: &mut Context, width: f32, height: f32) -> GameResult {
         // println!("Resized screen to {}, {}", width, height);
+        self.camera.aspect = width / height;
+        self.camera_uniform.update_view_proj(&self.camera);
+        ctx.gfx.wgpu().queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
         let new_rect = graphics::Rect::new(0.0, 0.0, width as f32, height as f32);
         self.screen_coords = new_rect;
         Ok(())
