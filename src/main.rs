@@ -9,6 +9,7 @@ use ggez::event;
 use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::Color;
+use ggez::graphics::Image;
 use ggez::graphics::Rect;
 use ggez::{Context, GameResult};
 use std::env;
@@ -114,11 +115,12 @@ struct Mesh {
     indices: Vec<u32>,
     vert_buffer: Option<wgpu::Buffer>,
     ind_buffer: Option<wgpu::Buffer>,
-    // pub texture: Option<Texture2D>,
+    bind_group: Option<wgpu::BindGroup>,
+    texture: Option<Image>,
 }
 
 impl Mesh {
-    fn gen_wgpu_buffer(&mut self, ctx: &mut Context) {
+    fn gen_wgpu_buffer(&mut self, pipeline: &wgpu::RenderPipeline, ctx: &mut Context) {
         let verts = ctx
             .gfx
             .wgpu()
@@ -138,6 +140,35 @@ impl Mesh {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
+        // Allow custom one set through mesh
+        let sampler = ctx
+            .gfx
+            .wgpu()
+            .device
+            .create_sampler(&graphics::Sampler::default().into());
+
+        let bind_group = ctx
+            .gfx
+            .wgpu()
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            self.texture.as_ref().unwrap().wgpu().1,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+
+        self.bind_group = Some(bind_group);
         self.vert_buffer = Some(verts);
         self.ind_buffer = Some(inds);
     }
@@ -159,7 +190,7 @@ struct MainState {
 
     meshes: Vec<Mesh>,
     pipeline: wgpu::RenderPipeline,
-    bind_group: wgpu::BindGroup,
+    // bind_group: wgpu::BindGroup,
     depth: graphics::ScreenImage,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -393,62 +424,61 @@ impl MainState {
                 });
 
         // Create 1-pixel blue texture.
-        let image =
-            graphics::Image::from_solid(ctx, 1, graphics::Color::from_rgb(0x20, 0xA0, 0xC0));
 
-        let sampler = ctx
-            .gfx
-            .wgpu()
-            .device
-            .create_sampler(&graphics::Sampler::default().into());
-
-        let bind_group = ctx
-            .gfx
-            .wgpu()
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(image.wgpu().1),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
+        // let bind_group = ctx
+        //     .gfx
+        //     .wgpu()
+        //     .device
+        //     .create_bind_group(&wgpu::BindGroupDescriptor {
+        //         label: None,
+        //         layout: &pipeline.get_bind_group_layout(0),
+        //         entries: &[
+        //             wgpu::BindGroupEntry {
+        //                 binding: 0,
+        //                 resource: wgpu::BindingResource::TextureView(image.wgpu().1),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 1,
+        //                 resource: wgpu::BindingResource::Sampler(&sampler),
+        //             },
+        //         ],
+        //     });
 
         let depth = graphics::ScreenImage::new(ctx, graphics::ImageFormat::Depth32Float, 1., 1., 1);
 
         // FOV, spect ratio, znear, zfar
         // let proj = Mat4::perspective_rh(f32::consts::PI / 4.0, 4.0 / 3.0, 1.0, 10.0);
         // let transform = proj * default_view();
+        let image =
+            graphics::Image::from_solid(ctx, 1, graphics::Color::from_rgb(0x20, 0xA0, 0xC0));
+        let image_two = graphics::Image::from_solid(ctx, 1, graphics::Color::from_rgb(50, 10, 50));
         let mut mesh = Mesh {
             vertices: vertex_data,
             indices: index_data.clone(),
             vert_buffer: None,
             ind_buffer: None,
+            bind_group: None,
+            texture: Some(image),
         };
 
-        mesh.gen_wgpu_buffer(ctx);
+        mesh.gen_wgpu_buffer(&pipeline, ctx);
 
         let mut mesh_two = Mesh {
             vertices: vertex_data_two,
             indices: index_data,
             vert_buffer: None,
             ind_buffer: None,
+            bind_group: None,
+            texture: Some(image_two),
         };
 
-        mesh_two.gen_wgpu_buffer(ctx);
+        mesh_two.gen_wgpu_buffer(&pipeline, ctx);
 
         Ok(MainState {
             frames: 0,
             camera: Camera::default(),
             pipeline,
-            bind_group,
+            // bind_group,
             depth,
             screen_coords: Rect {
                 x: 0.,
@@ -518,7 +548,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             // pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             for mesh in self.meshes.iter() {
                 pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_bind_group(0, &mesh.bind_group.as_ref().unwrap(), &[]);
                 // NEW!()
                 pass.set_bind_group(1, &self.camera_bind_group, &[]);
                 // let (vert_buffer, ind_buffer) = mesh.wgpu_buffer(ctx);
